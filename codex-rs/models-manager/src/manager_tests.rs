@@ -447,6 +447,22 @@ async fn refresh_available_models_uses_provider_auth_token() {
     assert_models_contain(&manager.get_remote_models().await, &remote_models);
 }
 
+#[test]
+fn provider_external_bearer_check_uses_resolved_provider_auth() {
+    let auth_script = ProviderAuthScript::new(&["provider-token"]).unwrap();
+    let external_provider = ModelProviderInfo {
+        auth: Some(auth_script.auth_config()),
+        ..provider_for("http://example.test".to_string())
+    };
+    let env_provider = ModelProviderInfo {
+        env_key: Some("TEST_PROVIDER_API_KEY".to_string()),
+        ..provider_for("http://example.test".to_string())
+    };
+
+    assert!(provider_uses_external_bearer_auth(&external_provider));
+    assert!(!provider_uses_external_bearer_auth(&env_provider));
+}
+
 #[tokio::test]
 async fn refresh_available_models_uses_cache_when_fresh() {
     let server = MockServer::start().await;

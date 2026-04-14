@@ -17,6 +17,7 @@ use codex_login::CodexAuth;
 use codex_login::auth_provider_from_auth;
 use codex_login::collect_auth_env_telemetry;
 use codex_login::default_client::build_reqwest_client;
+use codex_login::provider_uses_external_bearer_auth;
 use codex_login::required_auth_manager_for_provider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_otel::TelemetryAuthMode;
@@ -44,6 +45,7 @@ const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
 const MODELS_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
 const MODELS_ENDPOINT: &str = "/models";
+
 #[derive(Clone)]
 struct ModelsRequestTelemetry {
     auth_mode: Option<String>,
@@ -396,7 +398,7 @@ impl ModelsManager {
         }
 
         if self.auth_manager.auth_mode() != Some(AuthMode::Chatgpt)
-            && !self.provider.has_command_auth()
+            && !provider_uses_external_bearer_auth(&self.provider)
         {
             if matches!(
                 refresh_strategy,

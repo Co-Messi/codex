@@ -1,5 +1,5 @@
 use codex_api::CoreAuthProvider;
-use codex_model_provider::ProviderAuth;
+use codex_model_provider::ProviderAuthStrategy;
 use codex_model_provider::ResolvedModelProvider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::error::CodexErr;
@@ -14,8 +14,8 @@ pub fn auth_provider_from_auth(
     let resolved_provider = ResolvedModelProvider::resolve(provider.name.clone(), provider.clone())
         .map_err(|err| CodexErr::Fatal(err.to_string()))?;
 
-    match resolved_provider.auth_provider() {
-        ProviderAuth::EnvBearer {
+    match resolved_provider.auth_strategy() {
+        ProviderAuthStrategy::EnvBearer {
             env_key,
             env_key_instructions,
         } => {
@@ -33,13 +33,13 @@ pub fn auth_provider_from_auth(
                 account_id: None,
             })
         }
-        ProviderAuth::ExperimentalBearer { token } => Ok(CoreAuthProvider {
+        ProviderAuthStrategy::ExperimentalBearer { token } => Ok(CoreAuthProvider {
             token: Some(token.clone()),
             account_id: None,
         }),
-        ProviderAuth::OpenAi | ProviderAuth::ExternalBearer { .. } | ProviderAuth::None => {
-            auth_provider_from_codex_auth(auth)
-        }
+        ProviderAuthStrategy::OpenAi
+        | ProviderAuthStrategy::ExternalBearer { .. }
+        | ProviderAuthStrategy::NoProviderAuth => auth_provider_from_codex_auth(auth),
     }
 }
 
@@ -134,7 +134,7 @@ mod tests {
         provider.env_key = Some(MISSING_ENV_KEY.to_string());
         provider.env_key_instructions = Some("Set the test key.".to_string());
 
-        let err = match auth_provider_from_auth(None, &provider) {
+        let err = match auth_provider_from_auth(/*auth*/ None, &provider) {
             Ok(_) => panic!("expected missing env var"),
             Err(err) => err,
         };

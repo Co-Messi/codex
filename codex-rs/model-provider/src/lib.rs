@@ -22,12 +22,12 @@ pub type ModelProviderId = String;
 pub trait ModelProvider {
     fn id(&self) -> &str;
     fn info(&self) -> &ModelProviderInfo;
-    fn auth_provider(&self) -> &ProviderAuth;
+    fn auth_strategy(&self) -> &ProviderAuthStrategy;
 }
 
 /// Auth strategy selected for a resolved model provider.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ProviderAuth {
+pub enum ProviderAuthStrategy {
     /// OpenAI-managed auth through API key, ChatGPT, or ChatGPT auth tokens.
     OpenAi,
     /// Bearer token read from an environment variable.
@@ -39,11 +39,11 @@ pub enum ProviderAuth {
     ExperimentalBearer { token: String },
     /// Bearer token produced by an external command.
     ExternalBearer { config: ModelProviderAuthInfo },
-    /// No provider auth should be attached.
-    None,
+    /// No provider-specific auth is configured; callers may use session auth fallback.
+    NoProviderAuth,
 }
 
-impl ProviderAuth {
+impl ProviderAuthStrategy {
     /// Whether this auth strategy uses OpenAI account/API-key auth flows.
     pub fn requires_openai_auth(&self) -> bool {
         matches!(self, Self::OpenAi)
@@ -59,7 +59,7 @@ impl ProviderAuth {
 pub struct ResolvedModelProvider {
     id: ModelProviderId,
     info: ModelProviderInfo,
-    auth: ProviderAuth,
+    auth: ProviderAuthStrategy,
 }
 
 impl ResolvedModelProvider {
@@ -87,7 +87,7 @@ impl ResolvedModelProvider {
     }
 
     /// Return the provider-owned auth strategy.
-    pub fn auth_provider(&self) -> &ProviderAuth {
+    pub fn auth_strategy(&self) -> &ProviderAuthStrategy {
         &self.auth
     }
 }
@@ -101,33 +101,35 @@ impl ModelProvider for ResolvedModelProvider {
         &self.info
     }
 
-    fn auth_provider(&self) -> &ProviderAuth {
+    fn auth_strategy(&self) -> &ProviderAuthStrategy {
         &self.auth
     }
 }
 
-fn resolve_auth(info: &ModelProviderInfo) -> Result<ProviderAuth, ResolveProviderError> {
-    match (
-        info.requires_openai_auth,
-        info.env_key.as_ref(),
-        info.experimental_bearer_token.as_ref(),
-        info.auth.as_ref(),
-    ) {
-        (true, None, None, None) => Ok(ProviderAuth::OpenAi),
-        (false, Some(env_key), None, None) => Ok(ProviderAuth::EnvBearer {
+fn resolve_auth(info: &ModelProviderInfo) -> Result<ProviderAuthStrategy, ResolveProviderError> {
+    if let Some(config) = info.auth.as_ref() {
+        return Ok(ProviderAuthStrategy::ExternalBearer {
+            config: config.clone(),
+        });
+    }
+
+    if let Some(env_key) = info.env_key.as_ref() {
+        return Ok(ProviderAuthStrategy::EnvBearer {
             env_key: env_key.clone(),
             env_key_instructions: info.env_key_instructions.clone(),
-        }),
-        (false, None, Some(token), None) => Ok(ProviderAuth::ExperimentalBearer {
+        });
+    }
+
+    if let Some(token) = info.experimental_bearer_token.as_ref() {
+        return Ok(ProviderAuthStrategy::ExperimentalBearer {
             token: token.clone(),
-        }),
-        (false, None, None, Some(config)) => Ok(ProviderAuth::ExternalBearer {
-            config: config.clone(),
-        }),
-        (false, None, None, None) => Ok(ProviderAuth::None),
-        _ => Err(ResolveProviderError::InvalidConfig(
-            "provider auth settings are ambiguous".to_string(),
-        )),
+        });
+    }
+
+    if info.requires_openai_auth {
+        Ok(ProviderAuthStrategy::OpenAi)
+    } else {
+        Ok(ProviderAuthStrategy::NoProviderAuth)
     }
 }
 
@@ -184,14 +186,14 @@ mod tests {
 
         assert_eq!(provider.id(), "openai");
         assert_eq!(provider.info(), &info);
-        assert_eq!(provider.auth_provider(), &ProviderAuth::OpenAi);
-        assert!(provider.auth_provider().requires_openai_auth());
+        assert_eq!(provider.auth_strategy(), &ProviderAuthStrategy::OpenAi);
+        assert!(provider.auth_strategy().requires_openai_auth());
     }
 
     #[test]
     fn resolved_provider_implements_model_provider_facade() {
-        fn auth_from_provider(provider: &impl ModelProvider) -> &ProviderAuth {
-            provider.auth_provider()
+        fn auth_from_provider(provider: &impl ModelProvider) -> &ProviderAuthStrategy {
+            provider.auth_strategy()
         }
 
         let provider = ResolvedModelProvider::resolve(
@@ -200,7 +202,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(auth_from_provider(&provider), &ProviderAuth::OpenAi);
+        assert_eq!(auth_from_provider(&provider), &ProviderAuthStrategy::OpenAi);
     }
 
     #[test]
@@ -212,10 +214,51 @@ mod tests {
         let provider = ResolvedModelProvider::resolve("custom", info).unwrap();
 
         assert_eq!(
-            provider.auth_provider(),
-            &ProviderAuth::EnvBearer {
+            provider.auth_strategy(),
+            &ProviderAuthStrategy::EnvBearer {
                 env_key: "TEST_API_KEY".to_string(),
                 env_key_instructions: Some("Set TEST_API_KEY.".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_legacy_auth_priority_for_non_command_auth_fields() {
+        let mut env_over_experimental = provider();
+        env_over_experimental.env_key = Some("TEST_API_KEY".to_string());
+        env_over_experimental.experimental_bearer_token = Some("token".to_string());
+        assert_eq!(
+            ResolvedModelProvider::resolve("custom", env_over_experimental)
+                .unwrap()
+                .auth_strategy(),
+            &ProviderAuthStrategy::EnvBearer {
+                env_key: "TEST_API_KEY".to_string(),
+                env_key_instructions: None,
+            }
+        );
+
+        let mut env_over_openai = provider();
+        env_over_openai.env_key = Some("TEST_API_KEY".to_string());
+        env_over_openai.requires_openai_auth = true;
+        assert_eq!(
+            ResolvedModelProvider::resolve("custom", env_over_openai)
+                .unwrap()
+                .auth_strategy(),
+            &ProviderAuthStrategy::EnvBearer {
+                env_key: "TEST_API_KEY".to_string(),
+                env_key_instructions: None,
+            }
+        );
+
+        let mut experimental_over_openai = provider();
+        experimental_over_openai.experimental_bearer_token = Some("token".to_string());
+        experimental_over_openai.requires_openai_auth = true;
+        assert_eq!(
+            ResolvedModelProvider::resolve("custom", experimental_over_openai)
+                .unwrap()
+                .auth_strategy(),
+            &ProviderAuthStrategy::ExperimentalBearer {
+                token: "token".to_string(),
             }
         );
     }
@@ -228,8 +271,8 @@ mod tests {
         let provider = ResolvedModelProvider::resolve("custom", info).unwrap();
 
         assert_eq!(
-            provider.auth_provider(),
-            &ProviderAuth::ExperimentalBearer {
+            provider.auth_strategy(),
+            &ProviderAuthStrategy::ExperimentalBearer {
                 token: "token".to_string(),
             }
         );
@@ -250,8 +293,8 @@ mod tests {
         let provider = ResolvedModelProvider::resolve("custom", info).unwrap();
 
         assert_eq!(
-            provider.auth_provider(),
-            &ProviderAuth::ExternalBearer {
+            provider.auth_strategy(),
+            &ProviderAuthStrategy::ExternalBearer {
                 config: auth_config,
             }
         );
@@ -261,8 +304,11 @@ mod tests {
     fn resolves_no_auth_for_custom_provider() {
         let provider = ResolvedModelProvider::resolve("custom", provider()).unwrap();
 
-        assert_eq!(provider.auth_provider(), &ProviderAuth::None);
-        assert!(!provider.auth_provider().requires_openai_auth());
+        assert_eq!(
+            provider.auth_strategy(),
+            &ProviderAuthStrategy::NoProviderAuth
+        );
+        assert!(!provider.auth_strategy().requires_openai_auth());
     }
 
     #[test]

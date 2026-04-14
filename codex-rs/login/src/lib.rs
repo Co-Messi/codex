@@ -46,5 +46,6 @@ pub use auth::save_auth;
 pub use auth_env_telemetry::AuthEnvTelemetry;
 pub use auth_env_telemetry::collect_auth_env_telemetry;
 pub use provider_auth::auth_manager_for_provider;
+pub use provider_auth::provider_uses_external_bearer_auth;
 pub use provider_auth::required_auth_manager_for_provider;
 pub use token_data::TokenData;
