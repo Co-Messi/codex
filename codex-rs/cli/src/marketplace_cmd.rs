@@ -4,10 +4,11 @@ use anyhow::bail;
 use clap::Parser;
 use codex_config::MarketplaceConfigUpdate;
 use codex_config::record_user_marketplace;
-use codex_config::remove_user_marketplace;
 use codex_core::config::find_codex_home;
+use codex_core::plugins::MarketplaceRemoveRequest;
 use codex_core::plugins::OPENAI_CURATED_MARKETPLACE_NAME;
 use codex_core::plugins::marketplace_install_root;
+use codex_core::plugins::remove_marketplace;
 use codex_core::plugins::validate_marketplace_root;
 use codex_core::plugins::validate_plugin_segment;
 use codex_utils_cli::CliConfigOverrides;
@@ -190,30 +191,18 @@ async fn run_add(args: AddMarketplaceArgs) -> Result<()> {
 
 async fn run_remove(args: RemoveMarketplaceArgs) -> Result<()> {
     let RemoveMarketplaceArgs { marketplace_name } = args;
-    validate_plugin_segment(&marketplace_name, "marketplace name").map_err(anyhow::Error::msg)?;
-
     let codex_home = find_codex_home().context("failed to resolve CODEX_HOME")?;
-    let install_root = marketplace_install_root(&codex_home);
-    let destination = install_root.join(safe_marketplace_dir_name(&marketplace_name)?);
-    let removed_root = ops::remove_marketplace_root(&destination).with_context(|| {
-        format!(
-            "failed to remove installed marketplace root {}",
-            destination.display()
-        )
-    })?;
-    let removed_config =
-        remove_user_marketplace(&codex_home, &marketplace_name).with_context(|| {
-            format!("failed to remove marketplace `{marketplace_name}` from user config.toml")
-        })?;
-    if !removed_root && !removed_config {
-        bail!("marketplace `{marketplace_name}` is not configured or installed");
-    }
+    let outcome = remove_marketplace(
+        codex_home.to_path_buf(),
+        MarketplaceRemoveRequest { marketplace_name },
+    )
+    .await?;
 
-    println!("Removed marketplace `{marketplace_name}`.");
-    if removed_root {
+    println!("Removed marketplace `{}`.", outcome.marketplace_name);
+    if let Some(installed_root) = outcome.removed_installed_root {
         println!(
             "Removed installed marketplace root: {}",
-            destination.display()
+            installed_root.as_path().display()
         );
     }
 
