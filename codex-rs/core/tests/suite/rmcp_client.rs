@@ -9,6 +9,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use codex_config::McpServerEnvironment;
 use codex_config::types::McpServerConfig;
 use codex_config::types::McpServerTransportConfig;
 use codex_login::CodexAuth;
@@ -46,6 +47,7 @@ use serde_json::Value;
 use serde_json::json;
 use serial_test::serial;
 use tempfile::tempdir;
+use test_case::test_case;
 use tokio::process::Child;
 use tokio::process::Command;
 use tokio::time::Instant;
@@ -82,9 +84,26 @@ enum McpCallEvent {
     End(String),
 }
 
+#[derive(Clone, Copy, Debug)]
+enum StdioMcpTestEnvironment {
+    Local,
+    Remote,
+}
+
+impl StdioMcpTestEnvironment {
+    fn mcp_server_environment(self) -> McpServerEnvironment {
+        match self {
+            Self::Local => McpServerEnvironment::Local,
+            Self::Remote => McpServerEnvironment::Remote,
+        }
+    }
+}
+
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
-async fn stdio_server_round_trip() -> anyhow::Result<()> {
+async fn stdio_server_round_trip(stdio_environment: StdioMcpTestEnvironment) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -135,7 +154,7 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
                         env_vars: Vec::new(),
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
@@ -251,8 +270,12 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()> {
+async fn stdio_mcp_tool_call_includes_sandbox_state_meta(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -294,6 +317,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
                         env_vars: Vec::new(),
                         cwd: None,
                     },
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
@@ -383,8 +407,12 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stdio_mcp_parallel_tool_calls_default_false_runs_serially() -> anyhow::Result<()> {
+async fn stdio_mcp_parallel_tool_calls_default_false_runs_serially(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -429,7 +457,7 @@ async fn stdio_mcp_parallel_tool_calls_default_false_runs_serially() -> anyhow::
                         env_vars: Vec::new(),
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
@@ -526,8 +554,12 @@ async fn stdio_mcp_parallel_tool_calls_default_false_runs_serially() -> anyhow::
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stdio_mcp_parallel_tool_calls_opt_in_runs_concurrently() -> anyhow::Result<()> {
+async fn stdio_mcp_parallel_tool_calls_opt_in_runs_concurrently(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -580,7 +612,7 @@ async fn stdio_mcp_parallel_tool_calls_opt_in_runs_concurrently() -> anyhow::Res
                         env_vars: Vec::new(),
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: true,
@@ -642,9 +674,13 @@ async fn stdio_mcp_parallel_tool_calls_opt_in_runs_concurrently() -> anyhow::Res
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
-async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
+async fn stdio_image_responses_round_trip(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -693,7 +729,7 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
                         env_vars: Vec::new(),
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
@@ -834,9 +870,13 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
-async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Result<()> {
+async fn stdio_image_responses_are_sanitized_for_text_only_model(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -927,7 +967,7 @@ async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Re
                         env_vars: Vec::new(),
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
@@ -1006,9 +1046,13 @@ async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Re
     Ok(())
 }
 
+#[test_case(StdioMcpTestEnvironment::Local ; "local")]
+#[test_case(StdioMcpTestEnvironment::Remote ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
-async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
+async fn stdio_server_propagates_whitelisted_env_vars(
+    stdio_environment: StdioMcpTestEnvironment,
+) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
@@ -1057,7 +1101,7 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
                         env_vars: vec!["MCP_TEST_VALUE".to_string()],
                         cwd: None,
                     },
-                    environment: Default::default(),
+                    environment: stdio_environment.mcp_server_environment(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
