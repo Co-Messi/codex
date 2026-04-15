@@ -398,6 +398,9 @@
             "guardian_approval": {
               "type": "boolean"
             },
+            "image_detail_original": {
+              "type": "boolean"
+            },
             "image_generation": {
               "type": "boolean"
             },
@@ -807,7 +810,8 @@
     },
     "MarketplaceSourceType": {
       "enum": [
-        "git"
+        "git",
+        "local"
       ],
       "type": "string"
     },
@@ -2249,6 +2253,9 @@
           "type": "boolean"
         },
         "guardian_approval": {
+          "type": "boolean"
+        },
+        "image_detail_original": {
           "type": "boolean"
         },
         "image_generation": {

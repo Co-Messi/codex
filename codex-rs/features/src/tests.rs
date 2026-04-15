@@ -54,6 +54,12 @@ fn use_linux_sandbox_bwrap_is_removed_and_disabled_by_default() {
 }
 
 #[test]
+fn image_detail_original_is_removed_and_disabled_by_default() {
+    assert_eq!(Feature::ImageDetailOriginal.stage(), Stage::Removed);
+    assert_eq!(Feature::ImageDetailOriginal.default_enabled(), false);
+}
+
+#[test]
 fn js_repl_is_experimental_and_user_toggleable() {
     let spec = Feature::JsRepl.info();
     let stage = spec.stage;
@@ -128,9 +134,9 @@ fn tool_search_is_under_development_and_disabled_by_default() {
 }
 
 #[test]
-fn general_analytics_is_under_development_and_disabled_by_default() {
-    assert_eq!(Feature::GeneralAnalytics.stage(), Stage::UnderDevelopment);
-    assert_eq!(Feature::GeneralAnalytics.default_enabled(), false);
+fn general_analytics_is_stable_and_enabled_by_default() {
+    assert_eq!(Feature::GeneralAnalytics.stage(), Stage::Stable);
+    assert_eq!(Feature::GeneralAnalytics.default_enabled(), true);
 }
 
 #[test]
@@ -142,6 +148,14 @@ fn use_linux_sandbox_bwrap_is_a_removed_feature_key() {
     assert_eq!(
         feature_for_key("use_linux_sandbox_bwrap"),
         Some(Feature::UseLinuxSandboxBwrap)
+    );
+}
+
+#[test]
+fn image_detail_original_is_a_removed_feature_key() {
+    assert_eq!(
+        feature_for_key("image_detail_original"),
+        Some(Feature::ImageDetailOriginal)
     );
 }
 
