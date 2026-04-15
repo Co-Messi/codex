@@ -3932,10 +3932,25 @@ impl CodexMessageProcessor {
         }
         self.attach_thread_name(thread_uuid, &mut thread).await;
 
+        let has_live_in_progress_turn = if let Some(loaded_thread) = loaded_thread.as_ref() {
+            matches!(loaded_thread.agent_status().await, AgentStatus::Running)
+        } else {
+            false
+        };
+
+        let thread_status = self
+            .thread_watch_manager
+            .loaded_status_for_thread(&thread.id)
+            .await;
+
         if include_turns && let Some(rollout_path) = rollout_path.as_ref() {
             match read_rollout_items_from_rollout(rollout_path).await {
                 Ok(items) => {
-                    thread.turns = build_turns_from_rollout_items(&items);
+                    thread.turns = reconstruct_thread_turns_from_rollout_items(
+                        &items,
+                        thread_status.clone(),
+                        has_live_in_progress_turn,
+                    );
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                     self.send_invalid_request_error(
@@ -3960,17 +3975,6 @@ impl CodexMessageProcessor {
                 }
             }
         }
-
-        let has_live_in_progress_turn = if let Some(loaded_thread) = loaded_thread.as_ref() {
-            matches!(loaded_thread.agent_status().await, AgentStatus::Running)
-        } else {
-            false
-        };
-
-        let thread_status = self
-            .thread_watch_manager
-            .loaded_status_for_thread(&thread.id)
-            .await;
 
         set_thread_status_and_interrupt_stale_turns(
             &mut thread,
@@ -4076,14 +4080,13 @@ impl CodexMessageProcessor {
             Ok(items) => {
                 // Rollback and compaction events can change earlier turns, so pagination
                 // has to replay the full rollout until turn metadata is indexed separately.
-                let mut turns = build_turns_from_rollout_items(&items);
                 let has_live_in_progress_turn =
                     match self.thread_manager.get_thread(thread_uuid).await {
                         Ok(thread) => matches!(thread.agent_status().await, AgentStatus::Running),
                         Err(_) => false,
                     };
-                normalize_thread_turns_status(
-                    &mut turns,
+                let turns = reconstruct_thread_turns_from_rollout_items(
+                    &items,
                     self.thread_watch_manager
                         .loaded_status_for_thread(&thread_uuid.to_string())
                         .await,
@@ -9945,6 +9948,16 @@ fn parse_thread_turns_cursor(cursor: &str) -> Result<ThreadTurnsCursor, JSONRPCE
         message: format!("invalid cursor: {cursor}"),
         data: None,
     })
+}
+
+fn reconstruct_thread_turns_from_rollout_items(
+    items: &[RolloutItem],
+    loaded_status: ThreadStatus,
+    has_live_in_progress_turn: bool,
+) -> Vec<Turn> {
+    let mut turns = build_turns_from_rollout_items(items);
+    normalize_thread_turns_status(&mut turns, loaded_status, has_live_in_progress_turn);
+    turns
 }
 
 fn normalize_thread_turns_status(
