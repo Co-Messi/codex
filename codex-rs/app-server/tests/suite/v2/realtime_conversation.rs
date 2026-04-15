@@ -2285,6 +2285,7 @@ type = "conversational"
 
 [features]
 {realtime_feature_key} = {realtime_enabled}
+plugins = false
 
 [model_providers.mock_provider]
 name = "Mock provider for test"

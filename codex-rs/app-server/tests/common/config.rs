@@ -14,6 +14,7 @@ pub fn write_mock_responses_config_toml(
 ) -> std::io::Result<()> {
     // Phase 1: build the features block for config.toml.
     let mut features = BTreeMap::new();
+    features.insert(Feature::Plugins, false);
     for (feature, enabled) in feature_flags {
         features.insert(*feature, *enabled);
     }
