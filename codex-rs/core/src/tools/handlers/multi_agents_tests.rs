@@ -5,7 +5,6 @@ use crate::codex::make_session_and_context;
 use crate::config::AgentRoleConfig;
 use crate::config::DEFAULT_AGENT_MAX_DEPTH;
 use crate::function_tool::FunctionCallError;
-use crate::model_provider::ModelProvider;
 use crate::session_prefix::format_subagent_notification_message;
 use crate::state::TaskKind;
 use crate::tasks::SessionTask;
@@ -47,6 +46,7 @@ use codex_protocol::protocol::TurnAbortReason;
 use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::user_input::UserInput;
+use codex_provider_auth::create_model_provider;
 use core_test_support::TempDirExt;
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
@@ -366,7 +366,7 @@ async fn spawn_agent_uses_explorer_role_and_preserves_approval_policy() {
     turn.approval_policy
         .set(AskForApproval::OnRequest)
         .expect("approval policy should be set");
-    turn.provider = <dyn ModelProvider>::new(provider, turn.auth_manager.clone());
+    turn.provider = create_model_provider(provider, turn.auth_manager.clone());
     turn.config = Arc::new(config);
 
     let invocation = invocation(

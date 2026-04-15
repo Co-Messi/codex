@@ -7,7 +7,6 @@ use crate::exec::ExecCapturePolicy;
 use crate::exec::ExecParams;
 use crate::exec_policy::ExecPolicyManager;
 use crate::guardian::GUARDIAN_REVIEWER_NAME;
-use crate::model_provider::ModelProvider;
 use crate::sandboxing::SandboxPermissions;
 use crate::tools::context::FunctionToolOutput;
 use crate::turn_diff_tracker::TurnDiffTracker;
@@ -25,6 +24,7 @@ use codex_protocol::models::function_call_output_content_items_to_text;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
+use codex_provider_auth::create_model_provider;
 use core_test_support::PathExt;
 use core_test_support::TempDirExt;
 use core_test_support::codex_linux_sandbox_exe_or_skip;
@@ -102,7 +102,7 @@ async fn guardian_allows_shell_additional_permissions_requests_past_policy_valid
     ));
     session.services.models_manager = models_manager;
     turn_context_raw.config = Arc::clone(&config);
-    turn_context_raw.provider = <dyn ModelProvider>::new(
+    turn_context_raw.provider = create_model_provider(
         config.model_provider.clone(),
         turn_context_raw.auth_manager.clone(),
     );

@@ -78,7 +78,6 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
 use codex_login::default_client::originator;
-use codex_login::provider_auth::auth_manager_for_provider;
 use codex_mcp::McpConnectionManager;
 use codex_mcp::ToolInfo;
 use codex_mcp::codex_apps_tools_cache_key;
@@ -195,7 +194,6 @@ use crate::config::resolve_web_search_mode_for_turn;
 use crate::context_manager::ContextManager;
 use crate::context_manager::TotalTokenUsageBreakdown;
 use crate::environment_context::EnvironmentContext;
-use crate::model_provider::ModelProvider;
 use crate::thread_rollout_truncation::initial_history_has_prior_user_turns;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::types::McpServerConfig;
@@ -205,6 +203,8 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 #[cfg(test)]
 use codex_protocol::exec_output::StreamOutput;
+use codex_provider_auth::SharedModelProvider;
+use codex_provider_auth::create_model_provider;
 
 mod rollout_reconstruction;
 #[cfg(test)]
@@ -892,7 +892,7 @@ pub(crate) struct TurnContext {
     pub(crate) auth_manager: Option<Arc<AuthManager>>,
     pub(crate) model_info: ModelInfo,
     pub(crate) session_telemetry: SessionTelemetry,
-    pub(crate) provider: Arc<dyn ModelProvider>,
+    pub(crate) provider: SharedModelProvider,
     pub(crate) reasoning_effort: Option<ReasoningEffortConfig>,
     pub(crate) reasoning_summary: ReasoningSummaryConfig,
     pub(crate) session_source: SessionSource,
@@ -1596,8 +1596,7 @@ impl Session {
         let image_generation_tool_auth_allowed =
             image_generation_tool_auth_allowed(auth_manager.as_deref());
         let auth_manager_for_context = auth_manager.clone();
-        let provider_auth_manager = auth_manager_for_provider(auth_manager, &provider);
-        let provider_for_context = <dyn ModelProvider>::new(provider, provider_auth_manager);
+        let provider_for_context = create_model_provider(provider, auth_manager);
         let session_telemetry_for_context = session_telemetry;
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,
