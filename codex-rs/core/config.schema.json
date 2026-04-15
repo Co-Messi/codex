@@ -818,6 +818,13 @@
       ],
       "type": "string"
     },
+    "McpServerEnvironment": {
+      "enum": [
+        "local",
+        "remote"
+      ],
+      "type": "string"
+    },
     "McpServerToolConfig": {
       "additionalProperties": false,
       "description": "Per-tool approval settings for a single MCP server tool.",
@@ -1491,6 +1498,14 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "environment": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/McpServerEnvironment"
+            }
+          ],
+          "default": null
         },
         "http_headers": {
           "additionalProperties": {

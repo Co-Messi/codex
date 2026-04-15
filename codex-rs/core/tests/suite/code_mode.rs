@@ -211,6 +211,7 @@ async fn run_code_mode_turn_with_rmcp_mode(
                         env_vars: Vec::new(),
                         cwd: None,
                     },
+                    environment: Default::default(),
                     enabled: true,
                     required: false,
                     supports_parallel_tool_calls: false,
