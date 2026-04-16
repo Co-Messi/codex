@@ -12,6 +12,7 @@ use codex_protocol::request_user_input::RequestUserInputQuestion;
 use codex_protocol::request_user_input::RequestUserInputQuestionOption;
 use codex_protocol::request_user_input::RequestUserInputResponse;
 use codex_rmcp_client::perform_oauth_login;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -30,7 +31,7 @@ const MCP_DEPENDENCY_OPTION_INSTALL: &str = "Install";
 const MCP_DEPENDENCY_OPTION_SKIP: &str = "Continue anyway";
 
 pub(crate) async fn maybe_prompt_and_install_mcp_dependencies(
-    sess: &Session,
+    sess: &Arc<Session>,
     turn_context: &TurnContext,
     cancellation_token: &CancellationToken,
     mentioned_skills: &[SkillMetadata],
@@ -60,7 +61,7 @@ pub(crate) async fn maybe_prompt_and_install_mcp_dependencies(
         return;
     }
 
-    let unprompted_missing = filter_prompted_mcp_dependencies(sess, &missing).await;
+    let unprompted_missing = filter_prompted_mcp_dependencies(sess.as_ref(), &missing).await;
     if unprompted_missing.is_empty() {
         return;
     }
@@ -73,7 +74,7 @@ pub(crate) async fn maybe_prompt_and_install_mcp_dependencies(
 }
 
 pub(crate) async fn maybe_install_mcp_dependencies(
-    sess: &Session,
+    sess: &Arc<Session>,
     turn_context: &TurnContext,
     config: &crate::config::Config,
     mentioned_skills: &[SkillMetadata],
@@ -214,7 +215,7 @@ pub(crate) async fn maybe_install_mcp_dependencies(
 }
 
 async fn should_install_mcp_dependencies(
-    sess: &Session,
+    sess: &Arc<Session>,
     turn_context: &TurnContext,
     missing: &HashMap<String, McpServerConfig>,
     cancellation_token: &CancellationToken,

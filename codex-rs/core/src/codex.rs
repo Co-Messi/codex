@@ -2282,7 +2282,7 @@ impl Session {
                         true, // trigger_turn: auto-start a turn if idle
                     );
                     let sub_id = uuid::Uuid::new_v4().to_string();
-                    Session::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                    handlers::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
                 }
             });
         }
@@ -4581,7 +4581,7 @@ impl Session {
     }
 
     async fn refresh_mcp_servers_inner(
-        &self,
+        self: &Arc<Self>,
         turn_context: &TurnContext,
         mcp_servers: HashMap<String, McpServerConfig>,
         store_mode: OAuthCredentialsStoreMode,
@@ -4628,7 +4628,7 @@ impl Session {
         // (the old listener is bound to the old manager's channel and won't
         // receive notifications from newly-started MCP servers).
         if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
-            let sess_for_notifications = Arc::clone(&self.this);
+            let sess_for_notifications = Arc::clone(self);
             tokio::spawn(async move {
                 use codex_protocol::protocol::InterAgentCommunication;
                 use codex_protocol::AgentPath;
@@ -4646,7 +4646,7 @@ impl Session {
                         true,
                     );
                     let sub_id = uuid::Uuid::new_v4().to_string();
-                    Session::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                    handlers::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
                 }
             });
         }
@@ -4654,7 +4654,7 @@ impl Session {
         *manager = refreshed_manager;
     }
 
-    async fn refresh_mcp_servers_if_requested(&self, turn_context: &TurnContext) {
+    async fn refresh_mcp_servers_if_requested(self: &Arc<Self>, turn_context: &TurnContext) {
         let refresh_config = { self.pending_mcp_server_refresh_config.lock().await.take() };
         let Some(refresh_config) = refresh_config else {
             return;
@@ -4688,7 +4688,7 @@ impl Session {
     }
 
     pub(crate) async fn refresh_mcp_servers_now(
-        &self,
+        self: &Arc<Self>,
         turn_context: &TurnContext,
         mcp_servers: HashMap<String, McpServerConfig>,
         store_mode: OAuthCredentialsStoreMode,
@@ -6330,7 +6330,7 @@ pub(crate) async fn run_turn(
     }
 
     maybe_prompt_and_install_mcp_dependencies(
-        sess.as_ref(),
+        &sess,
         turn_context.as_ref(),
         &cancellation_token,
         &mentioned_skills,
