@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use codex_api::AuthProvider;
+use codex_api::SharedAuthProvider;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
@@ -55,7 +55,7 @@ fn bearer_auth_provider_from_auth(
 pub(crate) fn resolve_provider_auth(
     auth: Option<CodexAuth>,
     provider: &ModelProviderInfo,
-) -> codex_protocol::error::Result<Arc<dyn AuthProvider>> {
+) -> codex_protocol::error::Result<SharedAuthProvider> {
     let api_auth = bearer_auth_provider_from_auth(auth, provider)?;
     Ok(Arc::new(api_auth))
 }

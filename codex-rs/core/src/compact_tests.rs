@@ -190,7 +190,7 @@ fn build_token_limited_compacted_history_appends_summary_message() {
 
 #[test]
 fn should_use_remote_compact_task_for_azure_provider() {
-    let provider = create_model_provider(
+    let model_provider = create_model_provider(
         ModelProviderInfo {
             name: "Azure".into(),
             base_url: Some("https://example.com/openai".into()),
@@ -212,7 +212,7 @@ fn should_use_remote_compact_task_for_azure_provider() {
         /*auth_manager*/ None,
     );
 
-    assert!(should_use_remote_compact_task(provider.as_ref()));
+    assert!(should_use_remote_compact_task(model_provider.as_ref()));
 }
 
 #[tokio::test]

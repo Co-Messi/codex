@@ -1570,7 +1570,7 @@ impl Session {
         conversation_id: ThreadId,
         auth_manager: Option<Arc<AuthManager>>,
         session_telemetry: &SessionTelemetry,
-        provider: ModelProviderInfo,
+        provider_info: ModelProviderInfo,
         session_configuration: &SessionConfiguration,
         user_shell: &shell::Shell,
         shell_zsh_path: Option<&PathBuf>,
@@ -1596,7 +1596,7 @@ impl Session {
         let image_generation_tool_auth_allowed =
             image_generation_tool_auth_allowed(auth_manager.as_deref());
         let auth_manager_for_context = auth_manager.clone();
-        let provider_for_context = create_model_provider(provider, auth_manager);
+        let provider_for_context = create_model_provider(provider_info, auth_manager);
         let session_telemetry_for_context = session_telemetry;
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,

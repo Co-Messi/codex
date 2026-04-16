@@ -31,16 +31,6 @@ impl AuthProvider for BearerAuthProvider {
             let _ = headers.insert("ChatGPT-Account-ID", header);
         }
     }
-
-    fn auth_header_attached(&self) -> bool {
-        self.token
-            .as_ref()
-            .is_some_and(|token| HeaderValue::from_str(&format!("Bearer {token}")).is_ok())
-    }
-
-    fn auth_header_name(&self) -> Option<&'static str> {
-        self.auth_header_attached().then_some("authorization")
-    }
 }
 
 #[cfg(test)]
@@ -55,8 +45,13 @@ mod tests {
             account_id: None,
         };
 
-        assert!(auth.auth_header_attached());
-        assert_eq!(auth.auth_header_name(), Some("authorization"));
+        assert_eq!(
+            codex_api::auth_header_telemetry(&auth),
+            codex_api::AuthHeaderTelemetry {
+                attached: true,
+                name: Some("authorization"),
+            }
+        );
     }
 
     #[test]

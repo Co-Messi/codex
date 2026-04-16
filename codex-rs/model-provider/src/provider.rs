@@ -2,8 +2,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use codex_api::AuthProvider;
 use codex_api::Provider;
+use codex_api::SharedAuthProvider;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
@@ -38,17 +38,20 @@ pub struct ResolvedProviderAuth {
     /// Provider configuration adapted for the API client.
     pub api_provider: Provider,
     /// Auth provider used to attach request credentials.
-    pub api_auth: Arc<dyn AuthProvider>,
+    pub api_auth: SharedAuthProvider,
 }
 
 /// Creates the default runtime model provider for configured provider metadata.
 pub fn create_model_provider(
-    info: ModelProviderInfo,
+    provider_info: ModelProviderInfo,
     auth_manager: Option<Arc<AuthManager>>,
 ) -> SharedModelProvider {
     let auth_manager =
-        auth_manager.map(|auth_manager| auth_manager_for_provider(auth_manager, &info));
-    Arc::new(ConfiguredModelProvider { info, auth_manager })
+        auth_manager.map(|auth_manager| auth_manager_for_provider(auth_manager, &provider_info));
+    Arc::new(ConfiguredModelProvider {
+        info: provider_info,
+        auth_manager,
+    })
 }
 
 /// Runtime model provider backed by configured `ModelProviderInfo`.
