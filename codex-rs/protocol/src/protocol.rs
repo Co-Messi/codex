@@ -1287,26 +1287,24 @@ fn default_read_only_subpaths_for_writable_root(
     // (file .git with gitdir pointer), and bare repos when the gitdir is the
     // writable root itself.
     let top_level_git_is_file = top_level_git.as_path().is_file();
-    let top_level_git_is_dir = top_level_git.as_path().is_dir();
-    if top_level_git_is_dir || top_level_git_is_file {
-        if top_level_git_is_file
-            && is_git_pointer_file(&top_level_git)
-            && let Some(gitdir) = resolve_gitdir_from_file(&top_level_git)
-        {
-            subpaths.push(gitdir);
-        }
-        subpaths.push(top_level_git);
+    if top_level_git_is_file
+        && is_git_pointer_file(&top_level_git)
+        && let Some(gitdir) = resolve_gitdir_from_file(&top_level_git)
+    {
+        subpaths.push(gitdir);
     }
+    subpaths.push(top_level_git);
 
     let top_level_agents = writable_root.join(".agents");
     if top_level_agents.as_path().is_dir() {
         subpaths.push(top_level_agents);
     }
 
-    // Keep top-level project metadata under .codex read-only to the agent by
-    // default. For the workspace root itself, protect it even before the
-    // directory exists so first-time creation still goes through the
-    // protected-path approval flow.
+    // Keep top level project metadata under .git and .codex read-only to the
+    // agent by default. Existing .git pointer files still protect their
+    // resolved gitdir targets when present. For the workspace root itself,
+    // protect .codex even before it exists so first time creation still goes
+    // through the protected path approval flow.
     let top_level_codex = writable_root.join(".codex");
     if protect_missing_dot_codex || top_level_codex.as_path().is_dir() {
         subpaths.push(top_level_codex);
@@ -4284,6 +4282,8 @@ mod tests {
         let secret = AbsolutePathBuf::resolve_path_against_base("secret", cwd.path());
         let expected_secret = AbsolutePathBuf::from_absolute_path(canonical_cwd.join("secret"))
             .expect("canonical secret");
+        let expected_git = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".git"))
+            .expect("canonical .git");
         let expected_agents = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".agents"))
             .expect("canonical .agents");
         let expected_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
@@ -4332,6 +4332,12 @@ mod tests {
             writable_roots[0]
                 .read_only_subpaths
                 .iter()
+                .any(|path| path.as_path() == expected_git.as_path())
+        );
+        assert!(
+            writable_roots[0]
+                .read_only_subpaths
+                .iter()
                 .any(|path| path.as_path() == expected_agents.as_path())
         );
         assert!(
@@ -4354,8 +4360,12 @@ mod tests {
         let expected_docs_public =
             AbsolutePathBuf::from_absolute_path(canonical_cwd.join("docs/public"))
                 .expect("canonical docs/public");
-        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
-            .expect("canonical .codex");
+        let mut expected_cwd_reserved_paths = vec![
+            canonical_cwd.join(".git"),
+            canonical_cwd.join(".codex"),
+            expected_docs.to_path_buf(),
+        ];
+        expected_cwd_reserved_paths.sort();
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
                 path: FileSystemPath::Special {
@@ -4377,14 +4387,11 @@ mod tests {
         assert_eq!(
             sorted_writable_roots(policy.get_writable_roots_with_cwd(cwd.path())),
             vec![
+                (canonical_cwd, expected_cwd_reserved_paths),
                 (
-                    canonical_cwd,
-                    vec![
-                        expected_dot_codex.to_path_buf(),
-                        expected_docs.to_path_buf()
-                    ],
+                    expected_docs_public.to_path_buf(),
+                    vec![expected_docs_public.join(".git").to_path_buf()],
                 ),
-                (expected_docs_public.to_path_buf(), Vec::new()),
             ]
         );
     }
@@ -4395,8 +4402,9 @@ mod tests {
         let docs = AbsolutePathBuf::resolve_path_against_base("docs", cwd.path());
         let canonical_cwd = codex_utils_absolute_path::canonicalize_preserving_symlinks(cwd.path())
             .expect("canonicalize cwd");
-        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
-            .expect("canonical .codex");
+        let mut expected_reserved_paths =
+            vec![canonical_cwd.join(".git"), canonical_cwd.join(".codex")];
+        expected_reserved_paths.sort();
         let policy = SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             read_only_access: ReadOnlyAccess::Restricted {
@@ -4413,7 +4421,7 @@ mod tests {
                 FileSystemSandboxPolicy::from_legacy_sandbox_policy(&policy, cwd.path())
                     .get_writable_roots_with_cwd(cwd.path())
             ),
-            vec![(canonical_cwd, vec![expected_dot_codex.to_path_buf()])]
+            vec![(canonical_cwd, expected_reserved_paths)]
         );
     }
 

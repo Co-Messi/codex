@@ -515,6 +515,13 @@ fn append_read_only_subpath_args(
         if let Some(first_missing_component) = find_first_non_existent_component(subpath)
             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
         {
+            // Keep missing top level `.git` reserved in the logical policy
+            // without materializing it in the host workspace at sandbox
+            // startup. Existing `.git` paths are remounted read-only by the
+            // branch below once they exist.
+            if first_missing_component.file_name() == Some(std::ffi::OsStr::new(".git")) {
+                return;
+            }
             args.push("--ro-bind".to_string());
             args.push("/dev/null".to_string());
             args.push(path_to_string(&first_missing_component));
@@ -1054,6 +1061,10 @@ mod tests {
             Path::new("/"),
         )
         .expect("bwrap fs args");
+        assert!(
+            !args.args.iter().any(|arg| arg == "/.git"),
+            "missing /.git should stay logical only and should not be materialized in bwrap args",
+        );
         assert_eq!(
             args.args,
             vec![
@@ -1068,9 +1079,10 @@ mod tests {
                 "--bind".to_string(),
                 "/".to_string(),
                 "/".to_string(),
-                // Mask the default protected .codex subpath under that writable
-                // root. Because the root is `/` in this test, the carveout path
-                // appears as `/.codex`.
+                // Keep the missing `/.git` reservation logical only, but mask
+                // the default protected `.codex` subpath under that writable
+                // root. Because the root is `/` in this test, the carveout
+                // path appears as `/.codex`.
                 "--ro-bind".to_string(),
                 "/dev/null".to_string(),
                 "/.codex".to_string(),
