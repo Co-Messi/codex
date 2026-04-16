@@ -2258,6 +2258,34 @@ impl Session {
             session_init.required_mcp_server_count = required_mcp_server_count,
         ))
         .await;
+        // Take the MCP notification receiver and spawn a listener that routes
+        // MCP server logging notifications into the session mailbox. This is how
+        // external MCP servers (like agent-peers) can push messages into an active
+        // Codex session — the notification surfaces as an InterAgentCommunication
+        // with trigger_turn=true, which auto-starts a turn if the session is idle.
+        if let Some(mut notification_rx) = mcp_connection_manager.take_notification_receiver().await {
+            let sess_for_notifications = Arc::clone(&sess);
+            tokio::spawn(async move {
+                use codex_protocol::protocol::InterAgentCommunication;
+                use codex_protocol::AgentPath;
+                while let Some(notification) = notification_rx.recv().await {
+                    let logger_name = notification.logger.as_deref().unwrap_or("mcp");
+                    let data_str = match &notification.data {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let communication = InterAgentCommunication::new(
+                        AgentPath::try_from(format!("/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
+                        AgentPath::root(),
+                        Vec::new(),
+                        data_str,
+                        true, // trigger_turn: auto-start a turn if idle
+                    );
+                    let sub_id = uuid::Uuid::new_v4().to_string();
+                    Session::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                }
+            });
+        }
         {
             let mut manager_guard = sess.services.mcp_connection_manager.write().await;
             *manager_guard = mcp_connection_manager;
@@ -4596,6 +4624,32 @@ impl Session {
             *guard = cancel_token;
         }
 
+        // Re-spawn the MCP notification listener for the refreshed manager
+        // (the old listener is bound to the old manager's channel and won't
+        // receive notifications from newly-started MCP servers).
+        if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
+            let sess_for_notifications = Arc::clone(&self.this);
+            tokio::spawn(async move {
+                use codex_protocol::protocol::InterAgentCommunication;
+                use codex_protocol::AgentPath;
+                while let Some(notification) = notification_rx.recv().await {
+                    let logger_name = notification.logger.as_deref().unwrap_or("mcp");
+                    let data_str = match &notification.data {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let communication = InterAgentCommunication::new(
+                        AgentPath::try_from(format!("/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
+                        AgentPath::root(),
+                        Vec::new(),
+                        data_str,
+                        true,
+                    );
+                    let sub_id = uuid::Uuid::new_v4().to_string();
+                    Session::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                }
+            });
+        }
         let mut manager = self.services.mcp_connection_manager.write().await;
         *manager = refreshed_manager;
     }

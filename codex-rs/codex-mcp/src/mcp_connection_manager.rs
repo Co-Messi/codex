@@ -491,6 +491,7 @@ impl AsyncManagedClient {
         elicitation_requests: ElicitationRequestManager,
         codex_apps_tools_cache_context: Option<CodexAppsToolsCacheContext>,
         tool_plugin_provenance: Arc<ToolPluginProvenance>,
+        notification_tx: tokio::sync::mpsc::UnboundedSender<codex_rmcp_client::McpLoggingNotification>,
     ) -> Self {
         let tool_filter = ToolFilter::from_config(&config);
         let startup_snapshot = load_startup_cached_codex_apps_tools_snapshot(
@@ -522,6 +523,7 @@ impl AsyncManagedClient {
                         elicitation_requests,
                         codex_apps_tools_cache_context,
                     },
+                    notification_tx.clone(),
                 )
                 .or_cancel(&cancel_token)
                 .await
@@ -646,6 +648,8 @@ pub struct McpConnectionManager {
     clients: HashMap<String, AsyncManagedClient>,
     server_origins: HashMap<String, String>,
     elicitation_requests: ElicitationRequestManager,
+    notification_tx: tokio::sync::mpsc::UnboundedSender<codex_rmcp_client::McpLoggingNotification>,
+    notification_rx: tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<codex_rmcp_client::McpLoggingNotification>>>,
 }
 
 impl McpConnectionManager {
@@ -669,6 +673,7 @@ impl McpConnectionManager {
         approval_policy: &Constrained<AskForApproval>,
         sandbox_policy: &Constrained<SandboxPolicy>,
     ) -> Self {
+        let (notification_tx, notification_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             clients: HashMap::new(),
             server_origins: HashMap::new(),
@@ -676,7 +681,17 @@ impl McpConnectionManager {
                 approval_policy.value(),
                 sandbox_policy.get().clone(),
             ),
+            notification_tx,
+            notification_rx: tokio::sync::Mutex::new(Some(notification_rx)),
         }
+    }
+
+    /// Take the MCP notification receiver. Can only be called once — the session
+    /// spawns a listener task that consumes notifications from all MCP servers.
+    pub async fn take_notification_receiver(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<codex_rmcp_client::McpLoggingNotification>> {
+        self.notification_rx.lock().await.take()
     }
 
     pub fn has_servers(&self) -> bool {
@@ -720,6 +735,7 @@ impl McpConnectionManager {
             ElicitationRequestManager::new(approval_policy.value(), initial_sandbox_policy);
         let tool_plugin_provenance = Arc::new(tool_plugin_provenance);
         let startup_submit_id = submit_id.clone();
+        let (notification_tx, notification_rx) = tokio::sync::mpsc::unbounded_channel();
         let mcp_servers = mcp_servers.clone();
         for (server_name, cfg) in mcp_servers.into_iter().filter(|(_, cfg)| cfg.enabled) {
             if let Some(origin) = transport_origin(&cfg.transport) {
@@ -752,6 +768,7 @@ impl McpConnectionManager {
                 elicitation_requests.clone(),
                 codex_apps_tools_cache_context,
                 Arc::clone(&tool_plugin_provenance),
+                notification_tx.clone(),
             );
             clients.insert(server_name.clone(), async_managed_client.clone());
             let tx_event = tx_event.clone();
@@ -791,6 +808,8 @@ impl McpConnectionManager {
             clients,
             server_origins,
             elicitation_requests: elicitation_requests.clone(),
+            notification_tx: notification_tx.clone(),
+            notification_rx: tokio::sync::Mutex::new(Some(notification_rx)),
         };
         tokio::spawn(async move {
             let outcomes = join_set.join_all().await;
@@ -1384,6 +1403,7 @@ async fn start_server_task(
     server_name: String,
     client: Arc<RmcpClient>,
     params: StartServerTaskParams,
+    notification_tx: tokio::sync::mpsc::UnboundedSender<codex_rmcp_client::McpLoggingNotification>,
 ) -> Result<ManagedClient, StartupOutcomeError> {
     let StartServerTaskParams {
         startup_timeout,
@@ -1418,7 +1438,7 @@ async fn start_server_task(
     let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event);
 
     let initialize_result = client
-        .initialize(params, startup_timeout, send_elicitation)
+        .initialize(params, startup_timeout, send_elicitation, notification_tx)
         .await
         .map_err(StartupOutcomeError::from)?;
 
