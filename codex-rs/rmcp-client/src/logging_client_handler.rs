@@ -117,13 +117,26 @@ impl ClientHandler for LoggingClientHandler {
             data,
         } = params;
 
-        // Forward to the session so MCP server notifications can be surfaced
-        // to the model (e.g. peer-to-peer messages from agent-peers).
-        let _ = self.notification_tx.send(McpLoggingNotification {
-            level: format!("{:?}", level),
-            logger: logger.clone(),
-            data: data.clone(),
-        });
+        // Forward actionable notifications to the session mailbox so MCP servers
+        // can surface peer-to-peer messages to the model (e.g. agent-peers).
+        // Skip routine Info/Debug logs — those would wake idle sessions and burn
+        // tokens on every verbose log line.
+        let forward = matches!(
+            level,
+            LoggingLevel::Notice
+                | LoggingLevel::Warning
+                | LoggingLevel::Error
+                | LoggingLevel::Critical
+                | LoggingLevel::Alert
+                | LoggingLevel::Emergency
+        );
+        if forward {
+            let _ = self.notification_tx.send(McpLoggingNotification {
+                level: format!("{:?}", level),
+                logger: logger.clone(),
+                data: data.clone(),
+            });
+        }
 
         let logger = logger.as_deref();
         match level {

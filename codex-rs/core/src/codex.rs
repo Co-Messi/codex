@@ -2264,11 +2264,16 @@ impl Session {
         // Codex session — the notification surfaces as an InterAgentCommunication
         // with trigger_turn=true, which auto-starts a turn if the session is idle.
         if let Some(mut notification_rx) = mcp_connection_manager.take_notification_receiver().await {
-            let sess_for_notifications = Arc::clone(&sess);
+            // Hold a Weak ref so the listener doesn't keep the session alive
+            // after shutdown; exit the loop once the session has been dropped.
+            let sess_weak = Arc::downgrade(&sess);
             tokio::spawn(async move {
                 use codex_protocol::protocol::InterAgentCommunication;
                 use codex_protocol::AgentPath;
                 while let Some(notification) = notification_rx.recv().await {
+                    let Some(sess_for_notifications) = sess_weak.upgrade() else {
+                        break;
+                    };
                     let logger_name = notification.logger.as_deref().unwrap_or("mcp");
                     let data_str = match &notification.data {
                         serde_json::Value::String(s) => s.clone(),
@@ -4628,11 +4633,14 @@ impl Session {
         // (the old listener is bound to the old manager's channel and won't
         // receive notifications from newly-started MCP servers).
         if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
-            let sess_for_notifications = Arc::clone(self);
+            let sess_weak = Arc::downgrade(self);
             tokio::spawn(async move {
                 use codex_protocol::protocol::InterAgentCommunication;
                 use codex_protocol::AgentPath;
                 while let Some(notification) = notification_rx.recv().await {
+                    let Some(sess_for_notifications) = sess_weak.upgrade() else {
+                        break;
+                    };
                     let logger_name = notification.logger.as_deref().unwrap_or("mcp");
                     let data_str = match &notification.data {
                         serde_json::Value::String(s) => s.clone(),
