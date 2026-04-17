@@ -1,0 +1,127 @@
+name: Build & Release Patched Codex
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to rebase on (e.g. main, v0.121.0)'
+        required: false
+        default: 'main'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: codex-aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: codex-x86_64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: feat/mcp-notification-surfacing
+          fetch-depth: 0
+
+      - name: Fetch upstream and rebase
+        run: |
+          git remote add upstream https://github.com/openai/codex.git || true
+          git fetch upstream ${{ github.event.inputs.upstream_ref }}
+          git config user.email "ci@co-messi.dev"
+          git config user.name "Co-Messi CI"
+          git rebase upstream/${{ github.event.inputs.upstream_ref }} || {
+            echo "::error::Rebase failed — conflicts need manual resolution"
+            git rebase --abort
+            exit 1
+          }
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            codex-rs/target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('codex-rs/Cargo.lock') }}
+
+      - name: Build release binary
+        working-directory: codex-rs
+        run: cargo build --release --bin codex --target ${{ matrix.target }}
+        env:
+          CARGO_INCREMENTAL: 0
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: codex-rs/target/${{ matrix.target }}/release/codex
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Get upstream version
+        id: version
+        run: |
+          # Use date-based version since upstream uses 0.0.0 in Cargo.toml
+          echo "tag=v$(date +%Y%m%d)-mcp-notify" >> "$GITHUB_OUTPUT"
+
+      - name: Rename binaries
+        run: |
+          mv codex-aarch64-apple-darwin/codex codex-aarch64-apple-darwin-binary
+          mv codex-x86_64-unknown-linux-gnu/codex codex-x86_64-unknown-linux-gnu-binary
+          chmod +x codex-*-binary
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Codex CLI + MCP notification surfacing (${{ steps.version.outputs.tag }})"
+          body: |
+            ## Codex CLI with MCP notification surfacing
+
+            Auto-built from `feat/mcp-notification-surfacing` rebased on upstream `${{ github.event.inputs.upstream_ref }}`.
+
+            ### Install (macOS ARM64)
+            ```bash
+            curl -L https://github.com/Co-Messi/codex/releases/download/${{ steps.version.outputs.tag }}/codex-aarch64-apple-darwin-binary -o ~/.local/bin/codex-patched
+            chmod +x ~/.local/bin/codex-patched
+            ln -sf ~/.local/bin/codex-patched $(which codex)
+            ```
+
+            ### Install (Linux x86_64)
+            ```bash
+            curl -L https://github.com/Co-Messi/codex/releases/download/${{ steps.version.outputs.tag }}/codex-x86_64-unknown-linux-gnu-binary -o ~/.local/bin/codex-patched
+            chmod +x ~/.local/bin/codex-patched
+            ln -sf ~/.local/bin/codex-patched $(which codex)
+            ```
+
+            ### Revert
+            ```bash
+            # macOS (Homebrew)
+            ln -sf /opt/homebrew/Caskroom/codex/*/codex-aarch64-apple-darwin $(which codex)
+            ```
+
+            ### Changes from upstream
+            - [Full diff (PR #1)](https://github.com/Co-Messi/codex/pull/1)
+            - realtime-webrtc stubbed (audio mode returns UnsupportedPlatform)
+          files: |
+            codex-aarch64-apple-darwin-binary
+            codex-x86_64-unknown-linux-gnu-binary
