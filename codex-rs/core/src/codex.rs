@@ -2267,7 +2267,7 @@ impl Session {
             tracing::warn!("MCP notification listener spawned — channel connected");
             let sess_weak = Arc::downgrade(&sess);
             tokio::spawn(async move {
-                use codex_protocol::protocol::{ResponseInputItem, ContentItem};
+                use codex_protocol::models::{ResponseInputItem, ContentItem};
                 while let Some(notification) = notification_rx.recv().await {
                     tracing::warn!(
                         logger = ?notification.logger,
@@ -4644,7 +4644,7 @@ impl Session {
         if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
             let sess_weak = Arc::downgrade(self);
             tokio::spawn(async move {
-                use codex_protocol::protocol::{ResponseInputItem, ContentItem};
+                use codex_protocol::models::{ResponseInputItem, ContentItem};
                 while let Some(notification) = notification_rx.recv().await {
                     let Some(sess_ref) = sess_weak.upgrade() else {
                         break;
