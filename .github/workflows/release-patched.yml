@@ -60,6 +60,10 @@ jobs:
             codex-rs/target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('codex-rs/Cargo.lock') }}
 
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libcap-dev
+
       - name: Build release binary
         working-directory: codex-rs
         run: cargo build --release --bin codex --target ${{ matrix.target }}
