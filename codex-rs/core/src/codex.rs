@@ -2264,6 +2264,7 @@ impl Session {
         // Codex session — the notification surfaces as an InterAgentCommunication
         // with trigger_turn=true, which auto-starts a turn if the session is idle.
         if let Some(mut notification_rx) = mcp_connection_manager.take_notification_receiver().await {
+            tracing::warn!("MCP notification listener spawned — channel connected");
             // Hold a Weak ref so the listener doesn't keep the session alive
             // after shutdown; exit the loop once the session has been dropped.
             let sess_weak = Arc::downgrade(&sess);
@@ -2271,7 +2272,13 @@ impl Session {
                 use codex_protocol::protocol::InterAgentCommunication;
                 use codex_protocol::AgentPath;
                 while let Some(notification) = notification_rx.recv().await {
+                    tracing::warn!(
+                        logger = ?notification.logger,
+                        level = %notification.level,
+                        "MCP notification listener received message — routing to mailbox"
+                    );
                     let Some(sess_for_notifications) = sess_weak.upgrade() else {
+                        tracing::warn!("MCP notification listener: session dropped, exiting");
                         break;
                     };
                     let logger_name = notification.logger.as_deref().unwrap_or("mcp");
@@ -2287,9 +2294,14 @@ impl Session {
                         true, // trigger_turn: auto-start a turn if idle
                     );
                     let sub_id = uuid::Uuid::new_v4().to_string();
+                    tracing::warn!(sub_id = %sub_id, "MCP notification listener: calling inter_agent_communication");
                     handlers::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                    tracing::warn!("MCP notification listener: inter_agent_communication returned");
                 }
+                tracing::warn!("MCP notification listener: channel closed, task exiting");
             });
+        } else {
+            tracing::warn!("MCP notification listener NOT spawned — take_notification_receiver returned None");
         }
         {
             let mut manager_guard = sess.services.mcp_connection_manager.write().await;
