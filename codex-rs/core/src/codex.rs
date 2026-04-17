@@ -2287,7 +2287,7 @@ impl Session {
                         other => other.to_string(),
                     };
                     let communication = InterAgentCommunication::new(
-                        AgentPath::try_from(format!("/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
+                        AgentPath::try_from(format!("/root/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
                         AgentPath::root(),
                         Vec::new(),
                         data_str,
@@ -4659,7 +4659,7 @@ impl Session {
                         other => other.to_string(),
                     };
                     let communication = InterAgentCommunication::new(
-                        AgentPath::try_from(format!("/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
+                        AgentPath::try_from(format!("/root/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
                         AgentPath::root(),
                         Vec::new(),
                         data_str,
