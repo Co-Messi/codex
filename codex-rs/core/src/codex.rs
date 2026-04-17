@@ -2265,38 +2265,36 @@ impl Session {
         // with trigger_turn=true, which auto-starts a turn if the session is idle.
         if let Some(mut notification_rx) = mcp_connection_manager.take_notification_receiver().await {
             tracing::warn!("MCP notification listener spawned — channel connected");
-            // Hold a Weak ref so the listener doesn't keep the session alive
-            // after shutdown; exit the loop once the session has been dropped.
             let sess_weak = Arc::downgrade(&sess);
             tokio::spawn(async move {
-                use codex_protocol::protocol::InterAgentCommunication;
-                use codex_protocol::AgentPath;
+                use codex_protocol::protocol::{ResponseInputItem, ContentItem};
                 while let Some(notification) = notification_rx.recv().await {
                     tracing::warn!(
                         logger = ?notification.logger,
                         level = %notification.level,
-                        "MCP notification listener received message — routing to mailbox"
+                        "MCP notification listener received message"
                     );
-                    let Some(sess_for_notifications) = sess_weak.upgrade() else {
+                    let Some(sess_ref) = sess_weak.upgrade() else {
                         tracing::warn!("MCP notification listener: session dropped, exiting");
                         break;
                     };
-                    let logger_name = notification.logger.as_deref().unwrap_or("mcp");
                     let data_str = match &notification.data {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    let communication = InterAgentCommunication::new(
-                        AgentPath::try_from(format!("/root/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
-                        AgentPath::root(),
-                        Vec::new(),
-                        data_str,
-                        true, // trigger_turn: auto-start a turn if idle
-                    );
+                    // Inject as developer-role so the model treats this as an
+                    // instruction to follow, not as its own prior output.
+                    let item = ResponseInputItem::Message {
+                        role: "developer".to_string(),
+                        content: vec![ContentItem::InputText {
+                            text: data_str,
+                        }],
+                    };
+                    sess_ref.queue_response_items_for_next_turn(vec![item]).await;
                     let sub_id = uuid::Uuid::new_v4().to_string();
-                    tracing::warn!(sub_id = %sub_id, "MCP notification listener: calling inter_agent_communication");
-                    handlers::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
-                    tracing::warn!("MCP notification listener: inter_agent_communication returned");
+                    tracing::warn!(sub_id = %sub_id, "MCP notification: queued as developer input, starting turn");
+                    sess_ref.maybe_start_turn_for_pending_work_with_sub_id(sub_id).await;
+                    tracing::warn!("MCP notification: turn dispatch returned");
                 }
                 tracing::warn!("MCP notification listener: channel closed, task exiting");
             });
@@ -4455,7 +4453,6 @@ impl Session {
     }
 
     /// Queue response items to be injected into the next active turn created for this session.
-    #[cfg(test)]
     pub(crate) async fn queue_response_items_for_next_turn(&self, items: Vec<ResponseInputItem>) {
         if items.is_empty() {
             return;
@@ -4647,26 +4644,24 @@ impl Session {
         if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
             let sess_weak = Arc::downgrade(self);
             tokio::spawn(async move {
-                use codex_protocol::protocol::InterAgentCommunication;
-                use codex_protocol::AgentPath;
+                use codex_protocol::protocol::{ResponseInputItem, ContentItem};
                 while let Some(notification) = notification_rx.recv().await {
-                    let Some(sess_for_notifications) = sess_weak.upgrade() else {
+                    let Some(sess_ref) = sess_weak.upgrade() else {
                         break;
                     };
-                    let logger_name = notification.logger.as_deref().unwrap_or("mcp");
                     let data_str = match &notification.data {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    let communication = InterAgentCommunication::new(
-                        AgentPath::try_from(format!("/root/mcp/{logger_name}")).unwrap_or_else(|_| AgentPath::root()),
-                        AgentPath::root(),
-                        Vec::new(),
-                        data_str,
-                        true,
-                    );
+                    let item = ResponseInputItem::Message {
+                        role: "developer".to_string(),
+                        content: vec![ContentItem::InputText {
+                            text: data_str,
+                        }],
+                    };
+                    sess_ref.queue_response_items_for_next_turn(vec![item]).await;
                     let sub_id = uuid::Uuid::new_v4().to_string();
-                    handlers::inter_agent_communication(&sess_for_notifications, sub_id, communication).await;
+                    sess_ref.maybe_start_turn_for_pending_work_with_sub_id(sub_id).await;
                 }
             });
         }
