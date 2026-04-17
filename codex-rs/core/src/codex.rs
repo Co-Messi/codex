@@ -2258,6 +2258,49 @@ impl Session {
             session_init.required_mcp_server_count = required_mcp_server_count,
         ))
         .await;
+        // Take the MCP notification receiver and spawn a listener that routes
+        // MCP server logging notifications into the session mailbox. This is how
+        // external MCP servers (like agent-peers) can push messages into an active
+        // Codex session — the notification surfaces as an InterAgentCommunication
+        // with trigger_turn=true, which auto-starts a turn if the session is idle.
+        if let Some(mut notification_rx) = mcp_connection_manager.take_notification_receiver().await {
+            tracing::warn!("MCP notification listener spawned — channel connected");
+            let sess_weak = Arc::downgrade(&sess);
+            tokio::spawn(async move {
+                use codex_protocol::models::{ResponseInputItem, ContentItem};
+                while let Some(notification) = notification_rx.recv().await {
+                    tracing::warn!(
+                        logger = ?notification.logger,
+                        level = %notification.level,
+                        "MCP notification listener received message"
+                    );
+                    let Some(sess_ref) = sess_weak.upgrade() else {
+                        tracing::warn!("MCP notification listener: session dropped, exiting");
+                        break;
+                    };
+                    let data_str = match &notification.data {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    // Inject as developer-role so the model treats this as an
+                    // instruction to follow, not as its own prior output.
+                    let item = ResponseInputItem::Message {
+                        role: "developer".to_string(),
+                        content: vec![ContentItem::InputText {
+                            text: data_str,
+                        }],
+                    };
+                    sess_ref.queue_response_items_for_next_turn(vec![item]).await;
+                    let sub_id = uuid::Uuid::new_v4().to_string();
+                    tracing::warn!(sub_id = %sub_id, "MCP notification: queued as developer input, starting turn");
+                    sess_ref.maybe_start_turn_for_pending_work_with_sub_id(sub_id).await;
+                    tracing::warn!("MCP notification: turn dispatch returned");
+                }
+                tracing::warn!("MCP notification listener: channel closed, task exiting");
+            });
+        } else {
+            tracing::warn!("MCP notification listener NOT spawned — take_notification_receiver returned None");
+        }
         {
             let mut manager_guard = sess.services.mcp_connection_manager.write().await;
             *manager_guard = mcp_connection_manager;
@@ -4410,7 +4453,6 @@ impl Session {
     }
 
     /// Queue response items to be injected into the next active turn created for this session.
-    #[cfg(test)]
     pub(crate) async fn queue_response_items_for_next_turn(&self, items: Vec<ResponseInputItem>) {
         if items.is_empty() {
             return;
@@ -4553,7 +4595,7 @@ impl Session {
     }
 
     async fn refresh_mcp_servers_inner(
-        &self,
+        self: &Arc<Self>,
         turn_context: &TurnContext,
         mcp_servers: HashMap<String, McpServerConfig>,
         store_mode: OAuthCredentialsStoreMode,
@@ -4596,11 +4638,38 @@ impl Session {
             *guard = cancel_token;
         }
 
+        // Re-spawn the MCP notification listener for the refreshed manager
+        // (the old listener is bound to the old manager's channel and won't
+        // receive notifications from newly-started MCP servers).
+        if let Some(mut notification_rx) = refreshed_manager.take_notification_receiver().await {
+            let sess_weak = Arc::downgrade(self);
+            tokio::spawn(async move {
+                use codex_protocol::models::{ResponseInputItem, ContentItem};
+                while let Some(notification) = notification_rx.recv().await {
+                    let Some(sess_ref) = sess_weak.upgrade() else {
+                        break;
+                    };
+                    let data_str = match &notification.data {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let item = ResponseInputItem::Message {
+                        role: "developer".to_string(),
+                        content: vec![ContentItem::InputText {
+                            text: data_str,
+                        }],
+                    };
+                    sess_ref.queue_response_items_for_next_turn(vec![item]).await;
+                    let sub_id = uuid::Uuid::new_v4().to_string();
+                    sess_ref.maybe_start_turn_for_pending_work_with_sub_id(sub_id).await;
+                }
+            });
+        }
         let mut manager = self.services.mcp_connection_manager.write().await;
         *manager = refreshed_manager;
     }
 
-    async fn refresh_mcp_servers_if_requested(&self, turn_context: &TurnContext) {
+    async fn refresh_mcp_servers_if_requested(self: &Arc<Self>, turn_context: &TurnContext) {
         let refresh_config = { self.pending_mcp_server_refresh_config.lock().await.take() };
         let Some(refresh_config) = refresh_config else {
             return;
@@ -4634,7 +4703,7 @@ impl Session {
     }
 
     pub(crate) async fn refresh_mcp_servers_now(
-        &self,
+        self: &Arc<Self>,
         turn_context: &TurnContext,
         mcp_servers: HashMap<String, McpServerConfig>,
         store_mode: OAuthCredentialsStoreMode,
@@ -6276,7 +6345,7 @@ pub(crate) async fn run_turn(
     }
 
     maybe_prompt_and_install_mcp_dependencies(
-        sess.as_ref(),
+        &sess,
         turn_context.as_ref(),
         &cancellation_token,
         &mentioned_skills,

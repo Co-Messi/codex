@@ -12,6 +12,7 @@ use rmcp::model::ProgressNotificationParam;
 use rmcp::model::ResourceUpdatedNotificationParam;
 use rmcp::service::NotificationContext;
 use rmcp::service::RequestContext;
+use tokio::sync::mpsc;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -19,17 +20,30 @@ use tracing::warn;
 
 use crate::rmcp_client::SendElicitation;
 
+#[derive(Debug, Clone)]
+pub struct McpLoggingNotification {
+    pub level: String,
+    pub logger: Option<String>,
+    pub data: serde_json::Value,
+}
+
 #[derive(Clone)]
 pub(crate) struct LoggingClientHandler {
     client_info: ClientInfo,
     send_elicitation: Arc<SendElicitation>,
+    notification_tx: mpsc::UnboundedSender<McpLoggingNotification>,
 }
 
 impl LoggingClientHandler {
-    pub(crate) fn new(client_info: ClientInfo, send_elicitation: SendElicitation) -> Self {
+    pub(crate) fn new(
+        client_info: ClientInfo,
+        send_elicitation: SendElicitation,
+        notification_tx: mpsc::UnboundedSender<McpLoggingNotification>,
+    ) -> Self {
         Self {
             client_info,
             send_elicitation: Arc::new(send_elicitation),
+            notification_tx,
         }
     }
 }
@@ -102,6 +116,28 @@ impl ClientHandler for LoggingClientHandler {
             logger,
             data,
         } = params;
+
+        // Forward actionable notifications to the session mailbox so MCP servers
+        // can surface peer-to-peer messages to the model (e.g. agent-peers).
+        // Skip routine Info/Debug logs — those would wake idle sessions and burn
+        // tokens on every verbose log line.
+        let forward = matches!(
+            level,
+            LoggingLevel::Notice
+                | LoggingLevel::Warning
+                | LoggingLevel::Error
+                | LoggingLevel::Critical
+                | LoggingLevel::Alert
+                | LoggingLevel::Emergency
+        );
+        if forward {
+            let _ = self.notification_tx.send(McpLoggingNotification {
+                level: format!("{:?}", level),
+                logger: logger.clone(),
+                data: data.clone(),
+            });
+        }
+
         let logger = logger.as_deref();
         match level {
             LoggingLevel::Emergency

@@ -633,11 +633,13 @@ impl RmcpClient {
         params: InitializeRequestParams,
         timeout: Option<Duration>,
         send_elicitation: SendElicitation,
+        notification_tx: tokio::sync::mpsc::UnboundedSender<crate::logging_client_handler::McpLoggingNotification>,
     ) -> Result<InitializeResult> {
         let client_service = ElicitationClientService::new(
             params.clone(),
             send_elicitation,
             self.elicitation_pause_state.clone(),
+            notification_tx,
         );
         let pending_transport = {
             let mut guard = self.state.lock().await;

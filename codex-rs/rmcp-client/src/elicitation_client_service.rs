@@ -15,7 +15,10 @@ use rmcp::service::Service;
 use serde::Serialize;
 use serde_json::Value;
 
+use tokio::sync::mpsc;
+
 use crate::logging_client_handler::LoggingClientHandler;
+use crate::logging_client_handler::McpLoggingNotification;
 use crate::rmcp_client::Elicitation;
 use crate::rmcp_client::ElicitationPauseState;
 use crate::rmcp_client::ElicitationResponse;
@@ -35,12 +38,14 @@ impl ElicitationClientService {
         client_info: ClientInfo,
         send_elicitation: SendElicitation,
         pause_state: ElicitationPauseState,
+        notification_tx: mpsc::UnboundedSender<McpLoggingNotification>,
     ) -> Self {
         let send_elicitation = Arc::new(send_elicitation);
         Self {
             handler: LoggingClientHandler::new(
                 client_info,
                 clone_send_elicitation(Arc::clone(&send_elicitation)),
+                notification_tx,
             ),
             send_elicitation,
             pause_state,
